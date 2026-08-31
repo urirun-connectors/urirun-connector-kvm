@@ -98,7 +98,15 @@ def type_on(client: Any, text: str, enter: bool = False) -> dict:
 def combo_on(client: Any, combo: str) -> dict:
     """Press a chord like 'ctrl-alt-t', 'alt-F2', 'enter': modifiers held, final key
     pressed, modifiers released in reverse order."""
-    parts = [p for p in combo.replace("+", "-").split("-") if p]
+    # vncdotool's named-key map is lowercase.  Route callers commonly use X11
+    # spellings such as ``Return`` or ``CTRL+L``; passing those through makes
+    # vncdotool fall back to ``ord(value)`` and raises for multi-character
+    # names.  Chord notation is case-insensitive, unlike literal text typing.
+    parts = [
+        part.strip().lower()
+        for part in combo.replace("+", "-").split("-")
+        if part.strip()
+    ]
     if not parts:
         raise VncError("empty key combo")
     mods, last = parts[:-1], parts[-1]
