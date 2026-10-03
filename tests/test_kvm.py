@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import urirun
 from urirun import v2
 from urirun_connector_kvm import (
@@ -51,6 +52,47 @@ EXPECTED_ROUTES = {
     "kvm://host/vnc/command/click", "kvm://host/vnc/command/type", "kvm://host/vnc/command/key",
     "app://host/desktop/command/launch", "app://host/desktop/query/list",
 }
+
+
+def test_screen_wh_reads_capture_dimensions_without_pillow(monkeypatch, tmp_path) -> None:
+    from urirun_connector_kvm import _backends_uinput as U
+
+    cache = tmp_path / "screen-wh"
+    monkeypatch.setattr(U, "_SCREEN_WH_CACHE", str(cache))
+    monkeypatch.setattr(U.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.delenv("URIRUN_KVM_SCREEN", raising=False)
+
+    def capture(_action, *, output, **_kwargs):
+        # Enough of a PNG for the stdlib IHDR reader; no Pillow dependency.
+        header = b"\x89PNG\r\n\x1a\n" + U._struct.pack(">I", 13) + b"IHDR"
+        header += U._struct.pack(">II", 1920, 1080)
+        with open(output, "wb") as stream:
+            stream.write(header)
+        return {"path": output}
+
+    monkeypatch.setattr(B, "dispatch", capture)
+
+    assert U._screen_wh() == (1920, 1080)
+    assert cache.read_text() == "1920x1080"
+
+
+def test_uinput_abs_click_refuses_unknown_screen_geometry(monkeypatch) -> None:
+    from urirun_connector_kvm import _backends_uinput as U
+
+    monkeypatch.setattr(U, "uinput_available", lambda: True)
+    monkeypatch.setattr(U, "_screen_wh", lambda: (0, 0))
+
+    with pytest.raises(B.BackendError, match="screen geometry unavailable"):
+        U.uinput_abs_click(700, 800, 0, 0, do_click=False)
+
+
+def test_warm_capture_rejects_frame_from_wrong_pipewire_source() -> None:
+    meta = {"srcSize": [1920, 1080]}
+
+    assert B._warm_dimensions_valid(meta, (1920, 1080)) is True
+    assert B._warm_dimensions_valid(meta, (960, 540), max_width=960) is True
+    assert B._warm_dimensions_valid(meta, (640, 480)) is False
+    assert B._warm_dimensions_valid(meta, None) is False
 
 
 def test_key_requires_value() -> None:

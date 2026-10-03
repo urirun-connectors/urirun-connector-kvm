@@ -19,6 +19,34 @@ urirun run 'kvm://host/input/command/key' --payload '{"key": "a"}' --allow 'kvm:
 ```
 > Config-gated: without runtime config this prints the plan (dry-run).
 
+## Verified ONLYOFFICE flow (KVM + URI process)
+
+[`onlyoffice-uri-flow.yaml`](onlyoffice-uri-flow.yaml) is an executable host flow that:
+
+1. checks the KVM backends and installed office apps,
+2. launches ONLYOFFICE through its XDG/Flatpak desktop id,
+3. requires the word `ONLYOFFICE` to be visible before sending any keyboard input,
+4. batches focus, `ctrl+n`, and typing in one `task/command/run`,
+5. verifies the typed text and stores a final screenshot.
+
+The target desktop session must already be unlocked. The required visibility check is a safety
+gate: if the laptop is on the GNOME lock screen, the flow stops before `ctrl+n` or typing. Preview
+the resolved routes first, then opt into execution:
+
+```bash
+urirun host flow run examples/onlyoffice-uri-flow.yaml \
+  --node-url laptop=http://192.168.188.201:8765
+
+urirun host flow run examples/onlyoffice-uri-flow.yaml \
+  --node-url laptop=http://192.168.188.201:8765 \
+  --execute --rollback-on-failure \
+  --artifact-dir .urirun/artifacts/onlyoffice-smoke
+```
+
+This is a pixel/UI smoke test, not a semantic document API. For reliable production editing,
+prefer a LibreOffice UNO or ONLYOFFICE document adapter for document operations and use KVM only
+for launch, exceptional dialogs, and visual verification.
+
 ## Inspect the runtime (no path — like error:// / log://)
 ```bash
 urirun list | grep 'kvm://'                                   # this connector's routes

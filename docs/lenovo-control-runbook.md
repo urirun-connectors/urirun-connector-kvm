@@ -1,6 +1,6 @@
 # Runbook — sterowanie komputerem Lenovo (.201) przez urirun
 
-> Stan zweryfikowany **2026-06-23/25**. To jest „złoty zapis" CAŁEGO stacku, którym
+> Stan ponownie zweryfikowany **2026-07-20**. To jest „złoty zapis" CAŁEGO stacku, którym
 > dziś steruje się laptopem Lenovo — handlery, trasy, komendy deploy, wymagania
 > i ścieżki sesji. Docelowo cały ten stack ma zastąpić jeden connector `kvm`
 > (patrz [`ARCHITECTURE-cross-platform-backends.md`](ARCHITECTURE-cross-platform-backends.md)).
@@ -10,7 +10,7 @@
 | co | wartość |
 | --- | --- |
 | host (orkiestrator) | `nvidia` |
-| node | `http://192.168.188.201:8766` (w `~/.urirun/mesh.json`) |
+| node | `http://192.168.188.201:8765` |
 | nazwa w URI | `laptop` (node serwuje `*://laptop/...`) |
 | sesja | Wayland / GNOME (Mutter) |
 | `/run` auth | **wyłączone** (`requireRunAuth=false`) — `/run` bez tokenu |
@@ -19,6 +19,11 @@
 Node **nie ma** `WAYLAND_DISPLAY`/`DISPLAY` w env procesu. Zrzut portalowy działa mimo
 to (przez DBus); narzędzia wejścia wymagają `WAYLAND_DISPLAY` — handler ustawia
 `wayland-0` w `_env()`.
+
+Aktualny deploy jednego connectora wykonuje `scripts/redeploy_node.sh`. Węzeł ma 115 tras
+(w tym dokładne aliasy `host` i `laptop`), a sprawdzone backendy to Mutter/PipeWire dla
+capture oraz uinput dla klawiatury i myszy. Poniższy opis dwóch historycznych powierzchni
+pozostaje przydatny dla diagnostyki i migracji, ale nie jest już zalecaną metodą deployu.
 
 ## 2. Dwie powierzchnie tras (muszą współistnieć)
 
@@ -36,7 +41,7 @@ Kod: `urirun-connector-browser-control/examples/cdp-flat-handler.py` + `examples
 | `browser://laptop/cdp/page/query/eval` | `:eval_js` | eval JS w stronie |
 | `browser://laptop/cdp/page/query/screenshot` | `:screenshot` | PNG strony przez CDP |
 | `browser://laptop/cdp/page/query/tabs` | `:tabs` | lista kart |
-| `screen://laptop/portal/query/capture` | `gillm_capture:capture` | **zrzut całego ekranu — JEDYNA droga na GNOME/Wayland** (`org.freedesktop.portal.Screenshot`, DBus+GLib, `interactive=False`), zwraca pełny base64 PNG |
+| `screen://laptop/portal/query/capture` | `gillm_capture:capture` | historyczny zrzut całego ekranu przez `org.freedesktop.portal.Screenshot` (DBus+GLib, `interactive=False`); aktualny connector ma też sprawdzony capture Mutter/PipeWire |
 
 ### Powierzchnia B — wejście klawiatura/mysz + uruchamianie aplikacji
 Bindings: `.urirun/flows/lenovo-thunderbird/tb_bindings.json`
@@ -61,21 +66,21 @@ Kod: `.urirun/flows/lenovo-thunderbird/tb_handler.py`
 cd /home/tom/github/if-uri/urirun
 
 # --- Powierzchnia B (input + launch) ---
-.venv/bin/urirun host deploy http://192.168.188.201:8766 \
+.venv/bin/urirun host deploy http://192.168.188.201:8765 \
   --bindings .urirun/flows/lenovo-thunderbird/tb_bindings.json \
   --code     .urirun/flows/lenovo-thunderbird/tb_handler.py \
   --allow 'app://**' --allow 'kvm://**' --allow 'browser://**' --allow 'screen://**' \
   --merge --identity ~/.ssh/id_ed25519
 
 # --- Powierzchnia A (CDP + portal) — odtworzenie, gdy --merge ją wyprze ---
-.venv/bin/urirun host deploy http://192.168.188.201:8766 \
+.venv/bin/urirun host deploy http://192.168.188.201:8765 \
   --bindings .urirun/flows/lenovo-thunderbird/restore_bindings.json \
   --code ../urirun-connector-browser-control/examples/cdp-flat-handler.py \
   --code ../examples/39-browser-observe/gillm_capture.py \
   --allow 'browser://**' --allow 'screen://**' --identity ~/.ssh/id_ed25519
 ```
 
-**Auth (raz):** `urirun host copy-id http://192.168.188.201:8766 --identity ~/.ssh/id_ed25519`
+**Auth (raz):** `urirun host copy-id http://192.168.188.201:8765 --identity ~/.ssh/id_ed25519`
 — idempotentne (`ok=true`, `keyCount=1`). Wymaga `cryptography` w venv.
 Deploy NIE może czyścić `authorized_keys` (kiedyś replace-deploy wyzerował klucz i
 zablokował node). Auth ⟂ rejestr.
@@ -85,20 +90,21 @@ zablokował node). Auth ⟂ rejestr.
 | pakiet | po co | status (2026-06-23) |
 | --- | --- | --- |
 | `python3-dbus`, `python3-gobject` | zrzut portalowy | ✅ obecne (GNOME) |
-| `wtype` **lub** `ydotool`+`ydotoold` | klawiatura/mysz (Wayland uinput) | ❌ **BRAK** — bez tego nie wyślesz klawiszy. `sudo apt install wtype` |
+| uinput / `ydotool` | klawiatura/mysz (Wayland) | ✅ uinput i ydotool dostępne; sprawdzono ruch absolutny i klawisz Shift |
 | Thunderbird | flow draftu | ✅ jako Flatpak `net.thunderbird.Thunderbird` |
 
-Bez narzędzia wejścia można uruchomić i prefillować app (`launch -compose`), ale NIE
-wyślesz `ctrl+s` (zapis draftu). To jedyna realna luka sprzętowa.
+Przed akcją absolutną connector odczytuje geometrię z wyniku capture lub nagłówka PNG.
+Jeżeli geometria jest nieznana, akcja kończy się błędem zamiast wysłać surowe współrzędne
+uinput.
 
 ## 5. Weryfikacja
 
 ```bash
 # obie powierzchnie żyją?
-.venv/bin/urirun host probe http://192.168.188.201:8766
+.venv/bin/urirun host probe http://192.168.188.201:8765
 
 # zdolności wejścia/capture na node:
-curl -s -X POST http://192.168.188.201:8766/run -H 'Content-Type: application/json' \
+curl -s -X POST http://192.168.188.201:8765/run -H 'Content-Type: application/json' \
   -d '{"uri":"kvm://laptop/diag/query/which","payload":{}}' | python3 -m json.tool
 # oczekiwane: wtype lub ydotool != null, ydotoold_running=true (jeśli ydotool)
 ```

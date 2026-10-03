@@ -58,13 +58,25 @@ def _read_text(path: str) -> str:
         return ""
 
 
+def _png_wh(path: str) -> tuple[int, int]:
+    """Read PNG dimensions from its fixed IHDR header using only the stdlib."""
+    try:
+        with open(path, "rb") as stream:
+            header = stream.read(24)
+        if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+            return 0, 0
+        return tuple(int(v) for v in _struct.unpack(">II", header[16:24]))
+    except (OSError, _struct.error):
+        return 0, 0
+
+
 def _screen_wh() -> tuple[int, int]:
     """The full screen size in pixels that ``capture`` produces — the space callers'
     coordinates live in (capture-space == action-space). Sources, in order: the
     ``URIRUN_KVM_SCREEN=WxH`` env (set it at deploy time when known), a tmp cache, then
     one portal capture (cached). ``isolated=True`` handlers re-import per call, so the
-    cache is a file, not a module global. Returns ``(0, 0)`` if it cannot be determined,
-    in which case ``uinput_abs_click`` treats the coords as already absolute."""
+    cache is a file, not a module global. Returns ``(0, 0)`` if it cannot be determined;
+    absolute actions then fail closed instead of interpreting pixels as raw uinput."""
     env = os.environ.get("URIRUN_KVM_SCREEN", "").lower()
     for src in (env, _read_text(_SCREEN_WH_CACHE).lower()):
         if "x" in src:
@@ -79,10 +91,10 @@ def _screen_wh() -> tuple[int, int]:
         except ImportError:  # flat-module deploy
             from backends import dispatch  # type: ignore
         out = os.path.join(tempfile.gettempdir(), "urirun-kvm-wh.png")
-        dispatch("capture", output=out, monitor=0)
-        from PIL import Image
-        with Image.open(out) as im:
-            w, h = int(im.size[0]), int(im.size[1])
+        captured = dispatch("capture", output=out, monitor=0)
+        w, h = int(captured.get("width") or 0), int(captured.get("height") or 0)
+        if not w or not h:
+            w, h = _png_wh(out)
         if w and h:
             try:
                 with open(_SCREEN_WH_CACHE, "w") as f:
@@ -293,6 +305,11 @@ def uinput_abs_click(x: int, y: int, sw: int, sh: int, button: str = "left",
     if not sw or not sh:  # auto-detect from the capture surface when the caller omits it
         dsw, dsh = _screen_wh()
         sw, sh = sw or dsw, sh or dsh
+    if not sw or not sh:
+        raise BackendError(
+            "screen geometry unavailable; pass sw/sh or set URIRUN_KVM_SCREEN=WxH "
+            "instead of sending ambiguous raw uinput coordinates"
+        )
     ax, ay = _compute_abs_coords(float(x), float(y), sw, sh)
 
     def ev(fd: int, t: int, c: int, v: int) -> None:

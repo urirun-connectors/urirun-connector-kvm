@@ -445,6 +445,27 @@ def _warm_request(sock: str, output: str, max_width: int = 0, fmt: str = "") -> 
     return resp
 
 
+def _warm_dimensions_valid(meta: dict, dims: tuple[int, int] | None, max_width: int = 0) -> bool:
+    """Reject a PipeWire node that does not match the negotiated ScreenCast geometry.
+
+    PipeWire node ids are only meaningful for the negotiated Mutter stream. A stale or
+    wrongly resolved id can otherwise produce a perfectly valid PNG from another source
+    (observed live as a 640x480 camera frame for a 1920x1080 monitor). Such a frame must
+    never be reported as a successful desktop capture.
+    """
+    if not dims:
+        return False
+    src = meta.get("srcSize") or []
+    if len(src) < 2:
+        return False
+    src_w, src_h = int(src[0] or 0), int(src[1] or 0)
+    if src_w <= 0 or src_h <= 0:
+        return False
+    expected_w = min(src_w, int(max_width)) if int(max_width or 0) > 0 else src_w
+    expected_h = max(2, int(round(src_h * expected_w / src_w)) // 2 * 2)
+    return dims == (expected_w, expected_h)
+
+
 @backend("capture", "mutter-warm", priority=99, platforms=("linux-wayland",))
 def _cap_mutter_warm(output: str, monitor: int = 0, scope: str = "",
                      max_width: int = 0, fmt: str = "", **_: Any) -> dict:
@@ -463,6 +484,12 @@ def _cap_mutter_warm(output: str, monitor: int = 0, scope: str = "",
         if meta.get("proto") != _WARM_PROTO:  # worker predates the last deploy
             raise ValueError("outdated warm worker (proto %s != %s) — retiring"
                              % (meta.get("proto"), _WARM_PROTO))
+        dims = _png_dimensions(output)
+        if not _warm_dimensions_valid(meta, dims, max_width):
+            raise ValueError(
+                "warm PipeWire frame geometry %s does not match ScreenCast source %s"
+                % (dims, meta.get("srcSize"))
+            )
     except (OSError, ValueError) as exc:
         try:  # stale socket (worker crashed/idle-exited mid-check): clear + respawn next call
             os.unlink(sock)
@@ -470,7 +497,6 @@ def _cap_mutter_warm(output: str, monitor: int = 0, scope: str = "",
             pass
         raise BackendError("warm capture failed (%s) — cold path serves this call" % exc)
     data_len = os.path.getsize(output)
-    dims = _png_dimensions(output)
     return {"path": output, "bytes": data_len, "via": "mutter-screencast-warm",
             "format": fmt or "png",
             **({"width": dims[0], "height": dims[1]} if dims else {}),
@@ -1669,7 +1695,7 @@ try:  # normal package import
         _UI, _UI_DEV_CREATE, _UI_DEV_DESTROY, _UI_SET_EVBIT, _UI_SET_KEYBIT, _UI_SET_ABSBIT,
         _EV_SYN, _EV_KEY, _EV_ABS, _ABS_X, _ABS_Y, _BTN_CODE, _BTN_TOUCH, _ABS_RANGE,
         _SCREEN_WH_CACHE, _ui_io, _ui_iow, uinput_available, _uinput_create_abs,
-        _read_text, _screen_wh, _calib, _compute_abs_coords, _uinput_emit_clicks, uinput_abs_click,
+        _read_text, _png_wh, _screen_wh, _calib, _compute_abs_coords, _uinput_emit_clicks, uinput_abs_click,
         uinput_type_text, uinput_key_combo,
     )
 except ImportError:  # flat-module deploy
@@ -1677,7 +1703,7 @@ except ImportError:  # flat-module deploy
         _UI, _UI_DEV_CREATE, _UI_DEV_DESTROY, _UI_SET_EVBIT, _UI_SET_KEYBIT, _UI_SET_ABSBIT,
         _EV_SYN, _EV_KEY, _EV_ABS, _ABS_X, _ABS_Y, _BTN_CODE, _BTN_TOUCH, _ABS_RANGE,
         _SCREEN_WH_CACHE, _ui_io, _ui_iow, uinput_available, _uinput_create_abs,
-        _read_text, _screen_wh, _calib, _compute_abs_coords, _uinput_emit_clicks, uinput_abs_click,
+        _read_text, _png_wh, _screen_wh, _calib, _compute_abs_coords, _uinput_emit_clicks, uinput_abs_click,
         uinput_type_text, uinput_key_combo,
     )
 

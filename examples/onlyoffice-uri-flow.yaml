@@ -1,0 +1,64 @@
+version: urirun.flow.v1
+source:
+  kind: example
+  nl: "Otworz ONLYOFFICE na laptopie, utworz dokument i wpisz tekst kontrolny"
+task:
+  id: onlyoffice-kvm-smoke
+  title: ONLYOFFICE — verified KVM smoke test
+rollbackOnFailure: true
+steps:
+  - id: doctor
+    uri: kvm://laptop/doctor/query/report
+    payload: {}
+    depends_on: []
+
+  - id: inventory
+    uri: app://laptop/desktop/query/list
+    payload:
+      filter: office
+    depends_on: [doctor]
+
+  - id: launch
+    uri: app://laptop/desktop/command/launch
+    payload:
+      app: org.onlyoffice.desktopeditors
+      settle: 3
+    depends_on: [inventory]
+
+  # Safety gate: on a locked session this must fail before any keyboard input.
+  - id: onlyoffice_visible
+    uri: kvm://laptop/ui/query/verify
+    payload:
+      expect: ONLYOFFICE
+      required: true
+    depends_on: [launch]
+
+  # One node call avoids a separate process/device setup for every key action.
+  - id: create_and_type
+    uri: kvm://laptop/task/command/run
+    payload:
+      steps:
+        - op: focus
+          title: ONLYOFFICE
+          fullscreen: false
+        - op: key
+          keys: ctrl+n
+          after: 1.5
+        - op: type
+          text: "URI process KVM smoke test"
+          after: 0.5
+    depends_on: [onlyoffice_visible]
+
+  - id: verify_text
+    uri: kvm://laptop/ui/query/verify
+    payload:
+      expect: "URI process KVM smoke test"
+      required: true
+    depends_on: [create_and_type]
+
+  - id: evidence
+    uri: kvm://laptop/screen/query/capture
+    payload:
+      base64: true
+      max_width: 1280
+    depends_on: [verify_text]

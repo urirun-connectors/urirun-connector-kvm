@@ -99,6 +99,11 @@ sam się kończy po 120 s bezczynności (wskaźnik „udostępniania ekranu" nie
 - **Stale-worker po redeployu:** żywy worker sprzed deployu serwuje starym kodem, dopóki
   żądania odświeżają mu idle-timer — rozwiązane handshakiem `PROTO` (backend wykrywa
   niezgodność, unlinkuje socket, respawnuje).
+- **Audyt live 2026-07-20:** warm path zwrócił klatkę 640×480 przy geometrii negocjowanego
+  ScreenCast 1920×1080 (inny/stary PipeWire source). Backend sprawdza teraz rozmiar PNG względem
+  `srcSize`, odrzuca taki wynik i przechodzi do zimnego capture. Zmierzone ~55–63 ms nie może być
+  traktowane jako poprawne przyspieszenie, dopóki worker nie zachowa deskryptora/remote właściwej
+  sesji portalowej i test nie potwierdzi tożsamości źródła, nie tylko poprawnego pliku PNG.
 - **Pozostały koszt (~600 ms):** spawn izolowanego subprocessu na węźle + koperta HTTP/base64
   — to jest Tier 3 (de-izolacja tanich handlerów), teraz największy pozostały lever percepcji.
 

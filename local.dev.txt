@@ -1,11 +1,12 @@
-# local.dev.txt — locally developed dependencies of this project (generated 2026-07-04)
+# local.dev.txt — locally developed dependencies of this project (generated 2026-10-03)
 # by ~/github/local.dev.sh — DO NOT EDIT; see ~/github/local.dev.md
-# project: urirun-connector-kvm 0.3.1 (python) at /home/tom/github/if-uri/urirun-connector-kvm
-# deps declared: 13 | with local source: 3
+# project: urirun-connector-kvm 0.3.1 (python) at /home/tom/github/urirun-connectors/urirun-connector-kvm
+# deps declared: 13 | with local source: 4
 
 ## LOCAL DEPS  (dep | required | local source (version) | installed | status)
-imgl | >=0.7 | /home/tom/github/semcod/imgl (0.7.16) | 0.7.14 editable @if-uri/urirun/venv | OK-EDITABLE  [pyproject.toml[vision]]
-urirun | >=0.4.14 | /home/tom/github/if-uri/urirun/adapters/python (0.4.190) | 0.4.190 editable @if-uri/venv | OK-EDITABLE  [pyproject.toml]
-urirun-cdp | >=0.1.0 | /home/tom/github/if-uri/urirun-cdp (0.2.0) | 0.1.0 editable @if-uri/venv | OK-EDITABLE  [pyproject.toml]
+imgl | >=0.7 | /home/tom/github/autogrammar/imgl (0.7.17) | 0.7.17 editable @if-uri/urirun/venv | OK-EDITABLE  [pyproject.toml[vision]]
+urirun | >=0.4.14 | /home/tom/github/if-uri/urirun/adapters/python (0.4.200) | 0.4.190 editable @if-uri/urirun/venv | OK-EDITABLE  [pyproject.toml]
+urirun-cdp | >=0.1.0 | /home/tom/github/if-uri/urirun-cdp (0.2.1) | - | NOT-INSTALLED  [pyproject.toml]
+urirun-cdp | >=0.1.0 | /home/tom/github/subactor/urirun-cdp (0.2.1) | - | NOT-INSTALLED  [pyproject.toml]
 
 ## EXTERNAL DEPS (no local source, 10): Pillow, PyGObject, dbus-python, easyocr, mss, pygetwindow, pynput, pytesseract, pytest, vncdotool
