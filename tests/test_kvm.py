@@ -1334,6 +1334,60 @@ def test_cdp_dom_extract_form(monkeypatch) -> None:
     assert res_miss["matched"] is False
 
 
+def test_cdp_select_target_and_filtering(monkeypatch) -> None:
+    from urirun_connector_kvm.backends import BackendError
+
+    pages = [
+        {"id": "pane-A", "type": "page", "url": "https://www.youtube.com/watch?v=123", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/pane-A"},
+        {"id": "pane-C", "type": "page", "url": "https://www.prototypowanie.pl/", "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/pane-C"},
+    ]
+    monkeypatch.setattr(cdp, "targets", lambda: pages)
+
+    # 1. Exact target_id match
+    target_c = cdp.select_target(target_id="pane-C")
+    assert target_c["id"] == "pane-C"
+
+    # 2. URL filter match
+    target_yt = cdp.select_target(url_filter="youtube.com")
+    assert target_yt["id"] == "pane-A"
+
+    # 3. Missing target_id fails closed
+    import pytest
+    with pytest.raises(BackendError, match="target_id 'pane-Z' not found"):
+        cdp.select_target(target_id="pane-Z")
+
+    # 4. Multiple pages without target_id or url_filter fails closed
+    with pytest.raises(BackendError, match="multiple page targets; select one explicitly"):
+        cdp.select_target()
+
+    # 5. Ambiguous url_filter fails closed
+    pages_dup = [
+        {"id": "p1", "type": "page", "url": "https://example.com/1", "webSocketDebuggerUrl": "ws://127.0.0.1/1"},
+        {"id": "p2", "type": "page", "url": "https://example.com/2", "webSocketDebuggerUrl": "ws://127.0.0.1/2"},
+    ]
+    monkeypatch.setattr(cdp, "targets", lambda: pages_dup)
+    with pytest.raises(BackendError, match="ambiguous url_filter"):
+        cdp.select_target(url_filter="example.com")
+
+
+def test_cdp_core_handlers_forward_target_id(monkeypatch) -> None:
+    calls = []
+
+    class FakeCdp:
+        @staticmethod
+        def evaluate_target(expr, target_id="", url_filter=""):
+            calls.append({"expr": expr, "target_id": target_id, "url_filter": url_filter})
+            return "evaluated"
+
+    monkeypatch.setattr(core, "_cdp_mod", lambda: FakeCdp)
+
+    res = core.cdp_eval(expr="document.title", target_id="pane-C")
+    assert res["ok"] is True
+    assert res["value"] == "evaluated"
+    assert calls[0]["target_id"] == "pane-C"
+    assert calls[0]["expr"] == "document.title"
+
+
 # --------------------------------------------------------------------------- #
 # CDP launch/probe split (cold-start must not blow the node handler exec cap)
 # --------------------------------------------------------------------------- #
