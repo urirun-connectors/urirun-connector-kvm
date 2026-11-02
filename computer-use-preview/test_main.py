@@ -131,6 +131,24 @@ class TestMain(unittest.TestCase):
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
 
+    @patch('main.argparse.ArgumentParser')
+    @patch('main.KvmComputer')
+    @patch('main.BrowserAgent')
+    def test_main_local(self, mock_browser_agent, mock_kvm_computer, mock_arg_parser):
+        mock_args = MagicMock()
+        mock_args.env = 'local'
+        mock_args.query = 'test_query'
+        mock_args.model = 'local'
+        mock_args.plan = None
+        mock_args.node_name = 'laptop'
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+
+        main.main()
+
+        mock_kvm_computer.assert_called_once_with(node_url="local", node_name="laptop")
+        mock_browser_agent.assert_called_once()
+        mock_browser_agent.return_value.agent_loop.assert_called_once()
+
 
 class TestKvmComputer(unittest.TestCase):
 

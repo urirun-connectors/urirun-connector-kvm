@@ -24,17 +24,20 @@ API_MAX_WIDTH = 1400  # downscale screenshots sent to the model (coords stay nor
 class KvmComputer(Computer):
     """Computer Use executor backed by a urirun node's kvm:// surface."""
 
-    def __init__(self, node_url: str, node_name: str = "laptop", screen_size=None):
-        self._node = node_url.rstrip("/")
+    def __init__(self, node_url: str = "local", node_name: str = "laptop", screen_size=None):
+        self._node = node_url.rstrip("/") if node_url and node_url != "local" else "local"
         self._name = node_name
         self._size = tuple(screen_size) if screen_size else None
 
     # -- context manager -----------------------------------------------------
     def __enter__(self):
         if self._size is None:
-            res = self._run("screen/query/capture", {})
-            full = res.get("fullSize") or [1920, 1080]
-            self._size = (int(full[0]), int(full[1]))
+            try:
+                res = self._run("screen/query/capture", {})
+                full = res.get("fullSize") or [1920, 1080]
+                self._size = (int(full[0]), int(full[1]))
+            except Exception:
+                self._size = (1920, 1080)
         return self
 
     def __exit__(self, *exc):
@@ -42,6 +45,17 @@ class KvmComputer(Computer):
 
     # -- transport -----------------------------------------------------------
     def _run(self, route: str, payload: dict, scheme: str = "kvm", timeout: int = 60) -> dict:
+        if not self._node or self._node == "local":
+            from urirun_connector_kvm.runner import UniversalRunner
+            runner = UniversalRunner()
+            op = route.split("/")[-1]
+            step = dict(payload, op=op)
+            res = runner.execute_step(step)
+            if not res.get("ok"):
+                raise RuntimeError(f"{route}: {res.get('error', 'step failed')}")
+            result = res.get("result") or res
+            return result.get("value") if isinstance(result, dict) and "value" in result else (result or {})
+
         uri = f"{scheme}://{self._name}/{route}"
         body = json.dumps({"uri": uri, "payload": payload}).encode()
         req = urllib.request.Request(self._node + "/run", data=body,
@@ -184,10 +198,34 @@ class KvmComputer(Computer):
         return self._state()
 
     def navigate(self, url) -> EnvState:
+        if not self._node or self._node == "local":
+            self._run("cdp/page/command/navigate", {"url": url})
+            return self._state()
+        try:
+            from urirun_connector_kvm import cdp
+            if cdp.reachable():
+                cdp.navigate(url)
+                return self._state()
+        except Exception:
+            pass
         self._run("input/command/key", {"keys": "ctrl+l"}); time.sleep(0.2)
         self._run("input/command/type", {"text": url})
         self._run("input/command/key", {"keys": "Return"})
         return self._state()
+
+    def click_selector(self, selector: str = "", text: str = "") -> EnvState:
+        """Click an element by CSS selector or text using DOM/CDP."""
+        self._run("cdp/page/command/dom-click", {"selector": selector, "text": text})
+        return self._state()
+
+    def fill_selector(self, selector: str = "", value: str = "") -> EnvState:
+        """Fill an input element by CSS selector using DOM/CDP."""
+        self._run("cdp/page/command/dom-fill", {"selector": selector, "value": value})
+        return self._state()
+
+    def extract_form(self, selector: str = "") -> dict:
+        """Extract form schema using DOM/CDP."""
+        return self._run("cdp/page/query/dom-extract-form", {"selector": selector})
 
     def search(self) -> EnvState:
         return self.navigate("https://www.google.com")

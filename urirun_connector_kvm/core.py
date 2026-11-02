@@ -921,10 +921,14 @@ def task_run(steps: list | None = None) -> dict[str, Any]:
     probe can't answer at all (pure Wayland has no public active-window/geometry query), that
     is honestly unverifiable, not a pass, and the step proceeds best-effort exactly as before —
     callers on those sessions still want ``ui/command/type-verified`` for a post-hoc check."""
+    if isinstance(steps, dict) and "steps" in steps:
+        steps = steps["steps"]
     log: list[dict] = []
     expected_title = ""
     require_fullscreen = True
     for st in (steps or []):
+        if not isinstance(st, dict):
+            continue
         op = str(st.get("op", ""))
         extra: dict[str, Any] = {}
         try:
@@ -950,15 +954,97 @@ def task_run(steps: list | None = None) -> dict[str, Any]:
                 r = B.dispatch("key", keys=str(st.get("keys", st.get("key", ""))))
             elif op == "scroll":
                 r = B.dispatch("scroll", dy=int(st.get("dy", -3)))
+            elif op in ("dom-click", "cdp-click"):
+                r = cdp_dom_click(
+                    selector=str(st.get("selector", "")),
+                    text=str(st.get("text", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("dom-fill", "cdp-fill"):
+                r = cdp_dom_fill(
+                    selector=str(st.get("selector", "")),
+                    value=str(st.get("value", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("dom-extract-form", "cdp-extract-form"):
+                r = cdp_dom_extract_form(
+                    selector=str(st.get("selector", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("navigate", "cdp-navigate"):
+                r = cdp_navigate(
+                    url=str(st.get("url", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("eval", "cdp-eval"):
+                r = cdp_eval(
+                    expr=str(st.get("expr", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("find", "cdp-find"):
+                r = _cdp_mod().find(
+                    text=str(st.get("text", "")),
+                    role=str(st.get("role", "")),
+                    name=str(st.get("name", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
+            elif op in ("act", "cdp-act"):
+                r = _cdp_mod().act(
+                    op=str(st.get("do", st.get("action", "click"))),
+                    text=str(st.get("text", "")),
+                    role=str(st.get("role", "")),
+                    name=str(st.get("name", "")),
+                    value=str(st.get("value", "")),
+                    target_id=str(st.get("target_id", "")),
+                    url_filter=str(st.get("url_filter", "")),
+                )
             else:
                 log.append({"op": op, "skipped": "unknown op"})
                 continue
-            log.append({"op": op, "via": r.get("via"), "ok": True, **extra})
+            if isinstance(r, dict) and not r.get("ok", True):
+                log.append({"op": op, "ok": False, "error": r.get("error", "step failed")})
+                return urirun.fail(f"step {op!r} failed", connector=CONNECTOR_ID, steps=log)
+            step_via = r.get("via", "cdp" if "cdp" in op or "dom" in op or op in ("navigate", "eval", "find", "act") else None)
+            log.append({"op": op, "via": step_via, "ok": True, **extra})
             time.sleep(float(st.get("after", 0.25)))
         except (B.BackendError, KeyError, ValueError) as exc:
             log.append({"op": op, "ok": False, "error": str(exc)[:160]})
             return urirun.fail(f"step {op!r} failed", connector=CONNECTOR_ID, steps=log)
     return _ok(action="task", steps=log)
+
+
+@conn.handler("runner/command/execute", isolated=True,
+              meta={"label": "Universal local automation runner (CDP and KVM without cloud models)"})
+def runner_execute(steps: list | None = None, query: str = "", step: dict | None = None,
+                   plan: list | None = None,
+                   node: str = "", node_name: str = "laptop", **kwargs: Any) -> dict[str, Any]:
+    """Execute a task, plan, query, or single step through the universal local runner."""
+    from urirun_connector_kvm.runner import UniversalRunner
+    if isinstance(steps, dict):
+        if "plan" in steps:
+            plan = steps["plan"]
+        elif "steps" in steps:
+            steps = steps["steps"]
+        elif "query" in steps:
+            query = steps["query"]
+        elif "step" in steps:
+            step = steps["step"]
+    if plan is not None and steps is None:
+        steps = plan
+    runner = UniversalRunner(node_url=node, node_name=node_name)
+    if steps is not None:
+        return _ok(action="runner-execute", **runner.execute_plan(steps))
+    if query:
+        return _ok(action="runner-execute", **runner.execute_query(query))
+    if step is not None:
+        return _ok(action="runner-execute", **runner.execute_step(step))
+    return urirun.fail("steps, query, or step is required", connector=CONNECTOR_ID)
 
 
 # --------------------------------------------------------------------------- #
