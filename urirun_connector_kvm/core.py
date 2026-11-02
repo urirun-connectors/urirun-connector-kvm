@@ -1464,23 +1464,30 @@ def cdp_ready(timeout: float = 30.0) -> dict[str, Any]:
         urirun.fail("page not ready within timeout", connector=CONNECTOR_ID, action="cdp-ready", **_spread(r))
 
 
+def _evaluate_cdp(expr: str, target_id: str = "", url_filter: str = "") -> Any:
+    mod = _cdp_mod()
+    if hasattr(mod, "evaluate_target") and (target_id or url_filter or hasattr(mod, "targets")):
+        return mod.evaluate_target(expr, target_id=target_id, url_filter=url_filter)
+    return mod.evaluate(expr)
+
+
 @conn.handler("cdp/page/query/eval", isolated=True,
               meta={"label": "Evaluate JS in the CDP page and return the value (DOM read/inspect)"})
-def cdp_eval(expr: str = "") -> dict[str, Any]:
+def cdp_eval(expr: str = "", target_id: str = "", url_filter: str = "") -> dict[str, Any]:
     """DOM verb: run ``expr`` in the page (returnByValue). The reliable alternative to OCR
     for web flows — read the real DOM instead of guessing from pixels. Runs on the NODE,
     where Chrome's debug port is localhost."""
     if not expr:
         return urirun.fail("expr is required", connector=CONNECTOR_ID, action="cdp-eval")
     try:
-        return _ok(action="cdp-eval", value=_cdp_mod().evaluate(expr))
+        return _ok(action="cdp-eval", value=_evaluate_cdp(expr, target_id=target_id, url_filter=url_filter))
     except Exception as exc:  # noqa: BLE001
         return urirun.fail(str(exc), connector=CONNECTOR_ID, action="cdp-eval")
 
 
 @conn.handler("cdp/page/command/dom-fill", isolated=True,
               meta={"label": "Fill an input/textarea/contenteditable by CSS selector via the DOM"})
-def cdp_dom_fill(selector: str = "", value: str = "") -> dict[str, Any]:
+def cdp_dom_fill(selector: str = "", value: str = "", target_id: str = "", url_filter: str = "") -> dict[str, Any]:
     """DOM verb: set the value of the first element matching ``selector`` and fire
     input/change so frameworks (React etc.) notice — no focus race, no keystroke injection.
     contenteditable uses textContent. Returns matched=False when the selector hits nothing."""
@@ -1497,7 +1504,7 @@ def cdp_dom_fill(selector: str = "", value: str = "") -> dict[str, Any]:
         "(" + _json.dumps(selector) + "," + _json.dumps(value) + ")"
     )
     try:
-        r = _cdp_mod().evaluate(js) or {}
+        r = _evaluate_cdp(js, target_id=target_id, url_filter=url_filter) or {}
         if not r.get("matched"):
             return urirun.fail(f"selector matched nothing: {selector}",
                                connector=CONNECTOR_ID, action="cdp-dom-fill", matched=False)
@@ -1508,7 +1515,7 @@ def cdp_dom_fill(selector: str = "", value: str = "") -> dict[str, Any]:
 
 @conn.handler("cdp/page/command/dom-click", isolated=True,
               meta={"label": "Click an element by CSS selector (or visible text) via the DOM"})
-def cdp_dom_click(selector: str = "", text: str = "") -> dict[str, Any]:
+def cdp_dom_click(selector: str = "", text: str = "", target_id: str = "", url_filter: str = "") -> dict[str, Any]:
     """DOM verb: click the first element matching ``selector``, or (when ``text`` is given)
     the first button/link/[role=button] whose visible text contains it. Reliable where a
     pixel click races a moving layout."""
@@ -1529,7 +1536,7 @@ def cdp_dom_click(selector: str = "", text: str = "") -> dict[str, Any]:
          "e.scrollIntoView({block:'center'});e.click();" \
          "return{matched:true,txt:(e.innerText||'').trim().slice(0,60)};})()"
     try:
-        r = _cdp_mod().evaluate(js) or {}
+        r = _evaluate_cdp(js, target_id=target_id, url_filter=url_filter) or {}
         if not r.get("matched"):
             return urirun.fail(f"nothing to click for {selector or text!r}",
                                connector=CONNECTOR_ID, action="cdp-dom-click", matched=False)
@@ -1540,7 +1547,7 @@ def cdp_dom_click(selector: str = "", text: str = "") -> dict[str, Any]:
 
 @conn.handler("cdp/page/query/dom-extract-form", isolated=True,
               meta={"label": "Extract form structure, input fields, labels and options via the DOM"})
-def cdp_dom_extract_form(selector: str = "") -> dict[str, Any]:
+def cdp_dom_extract_form(selector: str = "", target_id: str = "", url_filter: str = "") -> dict[str, Any]:
     """DOM query: extract form schema and input fields (inputs, textareas, selects, checkboxes, buttons).
     If selector is given, extracts only within that form/container. Returns list of forms with their
     fields, validation requirements, and values for deterministic form automation."""
@@ -1612,7 +1619,7 @@ def cdp_dom_extract_form(selector: str = "") -> dict[str, Any]:
     })(""" + _json.dumps(selector) + ")"
 
     try:
-        r = _cdp_mod().evaluate(js) or {}
+        r = _evaluate_cdp(js, target_id=target_id, url_filter=url_filter) or {}
         if not r.get("matched", True):
             return urirun.fail(f"selector matched nothing: {selector}",
                                connector=CONNECTOR_ID, action="cdp-dom-extract-form", matched=False)
@@ -1830,7 +1837,14 @@ def cdp_status() -> dict[str, Any]:
     except ImportError:
         import cdp as _cdp  # type: ignore
     reachable = _cdp.reachable()
-    return _ok(action="cdp-status", reachable=reachable, endpoint=_cdp.endpoint())
+    targets = []
+    if reachable and hasattr(_cdp, "targets"):
+        try:
+            tlist = _cdp.targets()
+            targets = [{"id": t.get("id"), "url": t.get("url"), "title": t.get("title")} for t in tlist]
+        except Exception:
+            pass
+    return _ok(action="cdp-status", reachable=reachable, endpoint=_cdp.endpoint(), targets=targets)
 
 
 @conn.handler("ui/query/wait", isolated=True, meta={"label": "Poll until a target appears (router)"})

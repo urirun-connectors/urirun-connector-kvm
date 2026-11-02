@@ -10,6 +10,7 @@
 import json
 import os
 import subprocess
+from typing import Any
 
 try:
     from urirun_connector_kvm.backends import BackendError
@@ -316,11 +317,82 @@ _JS = r"""
 """
 
 
-def _run(op: str, text: str, role: str, name: str, value: str = "") -> dict:
+def targets() -> list[dict]:
+    """Query available page targets from the CDP debug endpoint."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{endpoint()}/json", timeout=min(_surface._TIMEOUT, 2.5)) as r:
+            data = json.loads(r.read() or "[]")
+        return [t for t in data if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+    except Exception:
+        return []
+
+
+def select_target(target_id: str = "", url_filter: str = "") -> dict:
+    """Select a specific page target by ID or URL filter. Fails closed on ambiguity or miss."""
+    pages = targets()
+    if target_id:
+        matched = [p for p in pages if p.get("id") == target_id]
+        if not matched:
+            raise BackendError(f"cdp: target_id {target_id!r} not found")
+        if len(matched) > 1:
+            raise BackendError(f"cdp: ambiguous target_id {target_id!r}")
+        return matched[0]
+    if url_filter:
+        matched = [p for p in pages if url_filter in (p.get("url") or "")]
+        if not matched:
+            raise BackendError(f"cdp: no target matching url_filter {url_filter!r}")
+        if len(matched) > 1:
+            raise BackendError(f"cdp: ambiguous url_filter {url_filter!r} (matched {len(matched)} targets)")
+        return matched[0]
+    if len(pages) > 1:
+        raise BackendError("cdp: multiple page targets; select one explicitly via target_id or url_filter")
+    if not pages:
+        raise BackendError("cdp: no page targets available")
+    return pages[0]
+
+
+def evaluate_target(expr: str, target_id: str = "", url_filter: str = "") -> Any:
+    """Evaluate a JS expression on an explicitly selected target or the unique active page."""
+    if not target_id and not url_filter:
+        pages = targets()
+        if len(pages) > 1:
+            raise BackendError("cdp: multiple page targets; select one explicitly via target_id or url_filter")
+        if not pages:
+            raise BackendError("cdp: no page targets available")
+        target = pages[0]
+    else:
+        target = select_target(target_id=target_id, url_filter=url_filter)
+
+    ws_url = target.get("webSocketDebuggerUrl")
+    if not ws_url:
+        raise BackendError(f"cdp: target {target.get('id')} has no webSocketDebuggerUrl")
+    s = _surface._ws_connect(ws_url)
+    try:
+        msg = _surface._call(s, 1, "Runtime.evaluate", {
+            "expression": expr,
+            "returnByValue": True,
+            "awaitPromise": True
+        })
+        if msg.get("error"):
+            raise BackendError(f"cdp eval error: {msg['error']}")
+        r = msg.get("result", {})
+        err = r.get("exceptionDetails")
+        if err:
+            raise BackendError(f"cdp eval error: {err.get('text', err)}")
+        return r.get("result", {}).get("value")
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _run(op: str, text: str, role: str, name: str, value: str = "", target_id: str = "", url_filter: str = "") -> dict:
     arg = json.dumps({"op": op, "text": text, "role": role, "name": name, "value": value})
     try:
-        res = _surface.evaluate(_JS.replace("__ARG__", arg))
-    except _surface.CdpError as exc:
+        res = evaluate_target(_JS.replace("__ARG__", arg), target_id=target_id, url_filter=url_filter)
+    except (_surface.CdpError, BackendError) as exc:
         raise BackendError(str(exc)) from exc
     if not isinstance(res, dict):
         raise BackendError(f"cdp: unexpected eval result {res!r}")
@@ -330,12 +402,12 @@ def _run(op: str, text: str, role: str, name: str, value: str = "") -> dict:
     return res
 
 
-def find(text: str = "", role: str = "", name: str = "") -> dict:
-    return _run("locate", text, role, name)
+def find(text: str = "", role: str = "", name: str = "", target_id: str = "", url_filter: str = "") -> dict:
+    return _run("locate", text, role, name, target_id=target_id, url_filter=url_filter)
 
 
-def act(op: str, text: str = "", role: str = "", name: str = "", value: str = "") -> dict:
-    res = _run(op, text, role, name, value)
+def act(op: str, text: str = "", role: str = "", name: str = "", value: str = "", target_id: str = "", url_filter: str = "") -> dict:
+    res = _run(op, text, role, name, value, target_id=target_id, url_filter=url_filter)
     if not res.get("found"):
         raise BackendError(f"cdp: element not found (text={text!r} role={role!r} name={name!r})")
     res["ok"] = True
