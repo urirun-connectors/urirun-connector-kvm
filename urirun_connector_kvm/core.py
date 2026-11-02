@@ -1538,6 +1538,89 @@ def cdp_dom_click(selector: str = "", text: str = "") -> dict[str, Any]:
         return urirun.fail(str(exc), connector=CONNECTOR_ID, action="cdp-dom-click")
 
 
+@conn.handler("cdp/page/query/dom-extract-form", isolated=True,
+              meta={"label": "Extract form structure, input fields, labels and options via the DOM"})
+def cdp_dom_extract_form(selector: str = "") -> dict[str, Any]:
+    """DOM query: extract form schema and input fields (inputs, textareas, selects, checkboxes, buttons).
+    If selector is given, extracts only within that form/container. Returns list of forms with their
+    fields, validation requirements, and values for deterministic form automation."""
+    js = r"""
+    (function(sel){
+      function getLabel(el){
+        if(el.labels && el.labels.length > 0){
+          return (el.labels[0].innerText || el.labels[0].textContent || '').trim();
+        }
+        var id = el.id;
+        if(id){
+          var lbl = document.querySelector('label[for="' + id + '"]');
+          if(lbl) return (lbl.innerText || lbl.textContent || '').trim();
+        }
+        var parentLabel = el.closest('label');
+        if(parentLabel){
+          return (parentLabel.innerText || parentLabel.textContent || '').trim();
+        }
+        return el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+      }
+
+      function extractFields(container){
+        var els = Array.from(container.querySelectorAll('input, textarea, select, button'));
+        return els.map(function(el){
+          var tag = el.tagName.toLowerCase();
+          var type = (el.type || '').toLowerCase();
+          var item = {
+            tag: tag,
+            type: type,
+            name: el.name || '',
+            id: el.id || '',
+            label: getLabel(el),
+            placeholder: el.placeholder || '',
+            required: Boolean(el.required || el.getAttribute('aria-required') === 'true'),
+            value: el.value || ''
+          };
+          if(tag === 'select'){
+            item.options = Array.from(el.options || []).map(function(o){
+              return {value: o.value, text: (o.text || '').trim(), selected: o.selected};
+            });
+          }
+          if(type === 'checkbox' || type === 'radio'){
+            item.checked = Boolean(el.checked);
+          }
+          return item;
+        });
+      }
+
+      var containers = [];
+      if(sel){
+        var c = document.querySelector(sel);
+        if(!c) return {matched: false, forms: []};
+        containers = [c];
+      } else {
+        var forms = Array.from(document.querySelectorAll('form'));
+        containers = forms.length > 0 ? forms : [document.body];
+      }
+
+      var formsResult = containers.map(function(f){
+        return {
+          id: f.id || '',
+          name: f.name || '',
+          action: (typeof f.action === 'string' ? f.action : '') || '',
+          method: (f.method || 'get').toLowerCase(),
+          fields: extractFields(f)
+        };
+      });
+      return {matched: true, forms: formsResult};
+    })(""" + _json.dumps(selector) + ")"
+
+    try:
+        r = _cdp_mod().evaluate(js) or {}
+        if not r.get("matched", True):
+            return urirun.fail(f"selector matched nothing: {selector}",
+                               connector=CONNECTOR_ID, action="cdp-dom-extract-form", matched=False)
+        return _ok(action="cdp-dom-extract-form", matched=True, forms=r.get("forms", []))
+    except Exception as exc:  # noqa: BLE001
+        return urirun.fail(str(exc), connector=CONNECTOR_ID, action="cdp-dom-extract-form")
+
+
 def _resolve_act_app(app: str) -> tuple[str, dict | None]:
     """Detect the foreground surface if app is empty. Returns (resolved_app, surface_or_None)."""
     surface = None

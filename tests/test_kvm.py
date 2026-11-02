@@ -44,7 +44,7 @@ EXPECTED_ROUTES = {
     "kvm://host/cdp/session/query/ready",
     "kvm://host/cdp/page/command/navigate", "kvm://host/cdp/page/query/ready",
     "kvm://host/cdp/page/query/eval", "kvm://host/cdp/page/command/dom-fill",
-    "kvm://host/cdp/page/command/dom-click",
+    "kvm://host/cdp/page/command/dom-click", "kvm://host/cdp/page/query/dom-extract-form",
     "kvm://host/ui/command/act", "kvm://host/env/query/profile", "kvm://host/surface/query/current", "kvm://host/display/query/info",
     "kvm://host/ready/query/resolve",
     "kvm://host/browser/query/sessions",
@@ -1295,6 +1295,43 @@ def test_cdp_navigate_has_no_url_collision(monkeypatch) -> None:
     monkeypatch.setattr(core, "_cdp_mod", lambda: FakeCdp)
     r = core.cdp_navigate(url="https://x")
     assert r["ok"] is True and r["url"] == "https://x"   # no TypeError; url present exactly once
+
+
+def test_cdp_dom_extract_form(monkeypatch) -> None:
+    sample_forms = [{
+        "id": "contact-form",
+        "name": "contact",
+        "action": "/submit",
+        "method": "post",
+        "fields": [
+            {"tag": "input", "type": "email", "name": "email", "id": "email-field", "label": "Email", "placeholder": "user@example.com", "required": True, "value": ""},
+            {"tag": "textarea", "type": "textarea", "name": "message", "id": "msg-field", "label": "Message", "placeholder": "", "required": False, "value": "Hello"},
+            {"tag": "select", "type": "select-one", "name": "topic", "id": "topic-field", "label": "Topic", "required": False, "value": "support", "options": [{"value": "support", "text": "Support", "selected": True}]},
+            {"tag": "button", "type": "submit", "name": "submit", "id": "submit-btn", "label": "Send", "placeholder": "", "required": False, "value": ""}
+        ]
+    }]
+
+    class FakeCdp:
+        @staticmethod
+        def evaluate(js):
+            if "#notfound" in js:
+                return {"matched": False, "forms": []}
+            return {"matched": True, "forms": sample_forms}
+
+    monkeypatch.setattr(core, "_cdp_mod", lambda: FakeCdp)
+
+    res = core.cdp_dom_extract_form()
+    assert res["ok"] is True
+    assert res["matched"] is True
+    assert len(res["forms"]) == 1
+    assert res["forms"][0]["id"] == "contact-form"
+    assert len(res["forms"][0]["fields"]) == 4
+    assert res["forms"][0]["fields"][0]["name"] == "email"
+    assert res["forms"][0]["fields"][0]["required"] is True
+
+    res_miss = core.cdp_dom_extract_form(selector="#notfound")
+    assert res_miss["ok"] is False
+    assert res_miss["matched"] is False
 
 
 # --------------------------------------------------------------------------- #
