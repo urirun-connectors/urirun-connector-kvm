@@ -4,140 +4,50 @@ sprint:
   name: Sprint 1
   status: active
   tickets:
-    task_1790352188_2:
-      created_at: '2026-09-25T15:59:41.559681+00:00'
-      description: '## Context
-
-        Observed technical defect in `urirun-connectors/urirun-connector-kvm`:
-
-        - **Code**: `PLANFILE_GITHUB_SYNC_MISSING`
-
-        - **Severity**: INFO
-
-        - **Evidence**: Missing .planfile/sync/github.state.yaml.
-
-
-        ## Problem & Action
-
-        Configure .planfile/sync/github.state.yaml to enable bidirectional GitHub
-        Issues synchronization.
+    PLF-002:
+      acceptance_criteria: []
+      blocked_by: []
+      blocks: []
+      children: []
+      contract_version: planfile.ticket/v1
+      created_at: '2026-11-02T00:01:57.968307Z'
+      description: 'Dodanie obsługi target_id / url_filter do funkcji CDP w urirun_connector_kvm.core,
+        aby zapobiec kolizjom gdy w przeglądarce otwartych jest wiele kart lub okien
+        z różnymi widokami (np. Willmux pane A, B, C). W przypadku braku dopasowania
+        funkcja ma raportować błąd fail-closed zamiast losowo wybierać pierwszą dostępną
+        kartę.
 
 
-        ## Acceptance Criteria
-
-        - [ ] AC-01: Planfile is not configured for GitHub Issues synchronization..
-
-        - [ ] AC-02: Verification checks and automated test suite pass with exit code
-        0.
+        **Ticket impact radar (advisory)**
 
 
-        ## Verification
+        - Complexity: `S`
 
-        ```sh
+        - Score: `28/100`
 
-        git status --porcelain && npm test || pytest -q
+        - Estimated effort: `24 min`
 
-        ```
-
-
-        ## Planfile & Koru Autonomous Handoff
-
-        - Driven by: `koru autonomous`
-
-        - When checks pass and the work is complete, mark done via: `planfile ticket
-        done <id>`
-
-        - Git discipline: commit only files modified for this ticket; stage explicitly
-        by path; write conventional commit message.'
-      execution:
-        queue: default
-        state: ready
-      executor:
-        kind: llm
-        mode: autonomous
-      id: task_1790352188_2
-      labels:
-      - monag
-      - autodiagnosis
-      - koru-autonomous
-      - tier:hygiene
-      priority: medium
-      status: done
-      tier: hygiene
-      title: '[urirun-connectors/urirun-connector-kvm] fix(planfile-github-sync-missing):
-        Planfile is not configured for GitHub Issues synchronization.'
-    task_1790358601_3:
-      created_at: '2026-09-25T17:48:56.025806+00:00'
-      description: '## Context
-
-        Observed technical defect in `urirun-connectors/urirun-connector-kvm`:
-
-        - **Code**: `DIRTY_WORKTREE`
-
-        - **Severity**: WARNING
-
-        - **Evidence**: git status --porcelain reports 11 modified/untracked files.
+        - Split recommended: `no`
 
 
-        ## Problem & Action
-
-        Investigate uncommitted changes in primary checkout, commit or isolate in
-        dedicated delivery worktree.
-
-
-        ## Acceptance Criteria
-
-        - [ ] AC-01: Repository has 11 uncommitted changes in primary checkout..
-
-        - [ ] AC-02: Verification checks and automated test suite pass with exit code
-        0.
-
-
-        ## Verification
-
-        ```sh
-
-        git status --porcelain && npm test || pytest -q
-
-        ```
-
-
-        ## Empirical Resource Estimation (semcod/estimation)
-
-        - **Process URI**: `testql://urirun-connectors/urirun-connector-kvm/query/tests`
-
-        - **Expected Duration**: 3.25s (p50) / **4.03s** (p90)
-
-        - **Peak RSS Memory**: 107.6 MB
-
-        - **Effective CPU Cores**: ~0.77
-
-        - **Confidence**: `medium` (3 historical samples)
-
-
-        ## Planfile & Koru Autonomous Handoff
-
-        - Driven by: `koru autonomous`
-
-        - When checks pass and the work is complete, mark done via: `planfile ticket
-        done <id>`
-
-        - Git discipline: commit only files modified for this ticket; stage explicitly
-        by path; write conventional commit message.'
-      execution:
-        queue: default
-        state: ready
-      executor:
-        kind: llm
-        mode: autonomous
-      id: task_1790358601_3
-      labels:
-      - monag
-      - autodiagnosis
-      - koru-autonomous
-      - tier:floor
-      priority: critical
-      status: done
-      tier: floor
-      title: '[urirun-connectors/urirun-connector-kvm] fix(dirty-worktree): Repository
-        has 11 uncommitted changes in primary checkout.'
+        This estimate does not grant execution, review or merge authority.'
+      dsl: SODL/1 id=evt_624d9111b8f209122ebf2061 event_hash=e23d7056256e514c5369a6593fa468735fc20311407ddf2f9aa5bf18a2d36413
+        timestamp=2026-11-02T00%3A01%3A57.968307%2B00%3A00 kind=task source=planfile.ticket
+        ticket_id=PLF-002 actor=human oql=ticket.create uri=planfile%3A%2F%2Ftickets%2FPLF-002%2Fcommand%2Fcreate
+        mode=apply status=open correlation_id=PLF-002 causation_id=- input_hash=b6d932f37e273ae1bbb2d768f2b9b8b360b14d135c4cf843cc23a09e9e57e012
+        receipt_ref=- replayable=true data=eyJwYXlsb2FkIjp7ImFjY2VwdGFuY2VfY3JpdGVyaWEiOltdLCJibG9ja2VkX2J5IjpbXSwiYmxvY2tzIjpbXSwiY2hpbGRyZW4iOltdLCJjb250cmFjdF92ZXJzaW9uIjoicGxhbmZpbGUudGlja2V0L3YxIiwiY3JlYXRlZF9hdCI6IjIwMjYtMTEtMDJUMDA6MDE6NTcuOTY4MzA3WiIsImRlc2NyaXB0aW9uIjoiRG9kYW5pZSBvYnPFgnVnaSB0YXJnZXRfaWQgLyB1cmxfZmlsdGVyIGRvIGZ1bmtjamkgQ0RQIHcgdXJpcnVuX2Nvbm5lY3Rvcl9rdm0uY29yZSwgYWJ5IHphcG9iaWVjIGtvbGl6am9tIGdkeSB3IHByemVnbMSFZGFyY2Ugb3R3YXJ0eWNoIGplc3Qgd2llbGUga2FydCBsdWIgb2tpZW4geiByw7PFvG55bWkgd2lkb2thbWkgKG5wLiBXaWxsbXV4IHBhbmUgQSwgQiwgQykuIFcgcHJ6eXBhZGt1IGJyYWt1IGRvcGFzb3dhbmlhIGZ1bmtjamEgbWEgcmFwb3J0b3dhxIcgYsWCxIVkIGZhaWwtY2xvc2VkIHphbWlhc3QgbG9zb3dvIHd5YmllcmHEhyBwaWVyd3N6xIUgZG9zdMSZcG7EhSBrYXJ0xJkuXG5cbioqVGlja2V0IGltcGFjdCByYWRhciAoYWR2aXNvcnkpKipcblxuLSBDb21wbGV4aXR5OiBgU2Bcbi0gU2NvcmU6IGAyOC8xMDBgXG4tIEVzdGltYXRlZCBlZmZvcnQ6IGAyNCBtaW5gXG4tIFNwbGl0IHJlY29tbWVuZGVkOiBgbm9gXG5cblRoaXMgZXN0aW1hdGUgZG9lcyBub3QgZ3JhbnQgZXhlY3V0aW9uLCByZXZpZXcgb3IgbWVyZ2UgYXV0aG9yaXR5LiIsImZpbGVzIjpbInVyaXJ1bl9jb25uZWN0b3Jfa3ZtL2NvcmUucHksdGVzdHMvdGVzdF9jZHAucHkiXSwiaWQiOiJQTEYtMDAyIiwibGFiZWxzIjpbXSwibmFtZSI6Ild5YsOzciBpIHByemXFgsSFY3phbmllIGNlbHUgQ0RQIChUYXJnZXRJRC9VUkwpIGRsYSB3aWVsdSBva2llbiBXaWxsbXV4IiwicHJpb3JpdHkiOiJoaWdoIiwic291cmNlIjp7ImNvbnRleHQiOnt9LCJ0aW1lc3RhbXAiOiIyMDI2LTExLTAyVDAwOjAxOjU3LjY3MTY2MloiLCJ0b29sIjoiaHVtYW4ifSwic3ByaW50IjoiY3VycmVudCIsInN0YXR1cyI6Im9wZW4iLCJzeW5jIjp7fSwidXBkYXRlZF9hdCI6IjIwMjYtMTEtMDJUMDA6MDE6NTcuOTY4MzE3WiJ9fQ
+      files:
+      - urirun_connector_kvm/core.py,tests/test_cdp.py
+      history: []
+      id: PLF-002
+      labels: []
+      name: Wybór i przełączanie celu CDP (TargetID/URL) dla wielu okien Willmux
+      priority: high
+      source:
+        context: {}
+        timestamp: '2026-11-02T00:01:57.671662Z'
+        tool: human
+      sprint: current
+      status: open
+      sync: {}
+      updated_at: '2026-11-02T00:01:57.968317Z'

@@ -52,6 +52,7 @@
     "kvm://host/cdp/page/command/dom-click",
     "kvm://host/cdp/page/command/dom-fill",
     "kvm://host/cdp/page/command/navigate",
+    "kvm://host/cdp/page/query/dom-extract-form",
     "kvm://host/cdp/page/query/eval",
     "kvm://host/cdp/page/query/ready",
     "kvm://host/cdp/session/command/ensure",
