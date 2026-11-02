@@ -75,6 +75,7 @@
     "kvm://host/input/command/wait",
     "kvm://host/proc/command/kill",
     "kvm://host/ready/query/resolve",
+    "kvm://host/runner/command/execute",
     "kvm://host/screen/query/capture",
     "kvm://host/surface/query/current",
     "kvm://host/task/command/run",
@@ -334,6 +335,14 @@
       "title": "What UI surface is in the foreground (browser via CDP, or desktop)",
       "uri": "kvm://host/surface/query/current",
       "payload": {}
+    },
+    {
+      "title": "Universal local automation runner (CDP and KVM without cloud models)",
+      "uri": "kvm://host/runner/command/execute",
+      "payload": {
+        "steps": null,
+        "query": ""
+      }
     },
     {
       "title": "Run a bounded input sequence",

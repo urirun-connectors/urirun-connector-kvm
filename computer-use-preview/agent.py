@@ -11,104 +11,77 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
+
+from contextlib import nullcontext
 import os
-from typing import Literal, Optional, Union, Any
-from google import genai
-from google.genai import types
-import termcolor
-from google.genai.types import (
-    Part,
-    GenerateContentConfig,
-    Content,
-    Candidate,
-    FunctionResponse,
-    FinishReason,
-)
 import time
+from typing import Literal, Optional, Union, Any
+import termcolor
 from rich.console import Console
 from rich.table import Table
+
+try:
+    from google import genai
+    from google.genai import types
+    from google.genai.types import (
+        Part,
+        GenerateContentConfig,
+        Content,
+        Candidate,
+        FunctionResponse,
+        FinishReason,
+    )
+except ImportError:  # pragma: no cover - fallback when google-genai is not installed
+    genai = None  # type: ignore
+
+    class _Stub:
+        def __init__(self, *args, **kwargs):
+            self.args, self.kwargs = args, kwargs
+
+    Part = GenerateContentConfig = Content = Candidate = FunctionResponse = _Stub  # type: ignore
+
+    class FinishReason:
+        MALFORMED_FUNCTION_CALL = "MALFORMED_FUNCTION_CALL"
+
+    class _TypesStub:
+        def __getattr__(self, name):
+            return _Stub
+
+    types = _TypesStub()  # type: ignore
 
 from computers import EnvState, Computer
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 LEGACY_COMPUTER_USE_MODELS = [
-    "gemini-2.5-computer-use-preview-10-2025",
-    "gemini-3-flash-preview",
-    "gemini-3.1-pro-preview",
+    "gemini-2.5-computer-use-preview-10-2025", "gemini-3-flash-preview", "gemini-3.1-pro-preview",
 ]
-
-# Legacy predefined functions, which are used in gemini-2.5-computer-use-preview-10-2025, gemini-3-flash-preview and gemini-3.1-pro-preview.
 LEGACY_PREDEFINED_COMPUTER_USE_FUNCTIONS = [
-    "open_web_browser",
-    "click_at",
-    "hover_at",
-    "type_text_at",
-    "scroll_document",
-    "scroll_at",
-    "wait_5_seconds",
-    "go_back",
-    "go_forward",
-    "search",
-    "navigate",
-    "key_combination",
-    "drag_and_drop",
+    "open_web_browser", "click_at", "hover_at", "type_text_at", "scroll_document",
+    "scroll_at", "wait_5_seconds", "go_back", "go_forward", "search", "navigate",
+    "key_combination", "drag_and_drop",
 ]
-
-# Predefined functions which are used in gemini-3.5-flash and future models.
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
-    "click",
-    "double_click",
-    "triple_click",
-    "middle_click",
-    "right_click",
-    "mouse_down",
-    "mouse_up",
-    "move",
-    "type",
-    "drag_and_drop",
-    "wait",
-    "press_key",
-    "key_down",
-    "key_up",
-    "hotkey",
-    "take_screenshot",
-    "scroll",
-    "go_back",
-    "navigate",
-    "go_forward",
+    "click", "double_click", "triple_click", "middle_click", "right_click",
+    "mouse_down", "mouse_up", "move", "type", "drag_and_drop", "wait",
+    "press_key", "key_down", "key_up", "hotkey", "take_screenshot", "scroll",
+    "go_back", "navigate", "go_forward",
 ]
-
 
 console = Console()
-
-# Built-in Computer Use tools will return "EnvState".
-# Custom provided functions will return "dict".
 FunctionResponseT = Union[EnvState, dict]
 
 _XY_CLICK_ACTIONS: dict[str, str] = {
-    "click": "click_at",
-    "double_click": "double_click_at",
-    "triple_click": "triple_click_at",
-    "middle_click": "middle_click_at",
-    "right_click": "right_click_at",
-    "mouse_down": "mouse_down",
-    "mouse_up": "mouse_up",
-    "move": "hover_at",
+    "click": "click_at", "double_click": "double_click_at", "triple_click": "triple_click_at",
+    "middle_click": "middle_click_at", "right_click": "right_click_at",
+    "mouse_down": "mouse_down", "mouse_up": "mouse_up", "move": "hover_at",
 }
-
 _SIMPLE_NO_ARG_ACTIONS: dict[str, str] = {
-    "open_web_browser": "open_web_browser",
-    "go_back": "go_back",
-    "go_forward": "go_forward",
-    "take_screenshot": "take_screenshot",
-    "wait_5_seconds": "wait_5_seconds",
-    "search": "search",
+    "open_web_browser": "open_web_browser", "go_back": "go_back", "go_forward": "go_forward",
+    "take_screenshot": "take_screenshot", "wait_5_seconds": "wait_5_seconds", "search": "search",
 }
-
 _KEY_ARG_ACTIONS: dict[str, str] = {
-    "press_key": "press_key",
-    "key_down": "key_down",
-    "key_up": "key_up",
+    "press_key": "press_key", "key_down": "key_down", "key_up": "key_up",
 }
 
 
@@ -122,7 +95,7 @@ class BrowserAgent:
         self,
         browser_computer: Computer,
         query: str,
-        model_name: str,
+        model_name: str = "local",
         verbose: bool = True,
     ):
         self._browser_computer = browser_computer
@@ -130,35 +103,22 @@ class BrowserAgent:
         self._model_name = model_name
         self._verbose = verbose
         self.final_reasoning = None
+        if self._model_name == "local" or genai is None or not os.environ.get("GEMINI_API_KEY"):
+            self._client = None
+            self._contents = []
+            self._use_legacy_computer_use_function_call = False
+            return
         self._client = genai.Client(
             api_key=os.environ.get("GEMINI_API_KEY"),
             vertexai=os.environ.get("USE_VERTEXAI", "0").lower() in ["true", "1"],
             project=os.environ.get("VERTEXAI_PROJECT"),
             location=os.environ.get("VERTEXAI_LOCATION"),
         )
-        self._contents: list[Content] = [
-            Content(
-                role="user",
-                parts=[
-                    Part(text=self._query),
-                ],
-            )
-        ]
-        self._use_legacy_computer_use_function_call = (
-            model_name in LEGACY_COMPUTER_USE_MODELS
-        )
-
-        # Exclude any predefined functions here.
-        excluded_predefined_functions = []
-
-        # Add your own custom functions here.
+        self._contents: list[Content] = [Content(role="user", parts=[Part(text=self._query)])]
+        self._use_legacy_computer_use_function_call = model_name in LEGACY_COMPUTER_USE_MODELS
         custom_functions = [
-            # For example:
-            types.FunctionDeclaration.from_callable(
-                client=self._client, callable=multiply_numbers
-            )
+            types.FunctionDeclaration.from_callable(client=self._client, callable=multiply_numbers)
         ]
-
         self._generate_content_config = GenerateContentConfig(
             temperature=1,
             top_p=0.95,
@@ -168,7 +128,7 @@ class BrowserAgent:
                 types.Tool(
                     computer_use=types.ComputerUse(
                         environment=types.Environment.ENVIRONMENT_BROWSER,
-                        excluded_predefined_functions=excluded_predefined_functions,
+                        excluded_predefined_functions=[],
                     ),
                 ),
                 types.Tool(function_declarations=custom_functions),
@@ -177,18 +137,17 @@ class BrowserAgent:
         )
 
     def _handle_scroll_at(self, action: types.FunctionCall) -> FunctionResponseT:
-        """Shared scroll_at logic for both current and legacy action dispatch."""
         x = self.denormalize_x(action.args["x"])
         y = self.denormalize_y(action.args["y"])
-        magnitude = action.args.get("magnitude", 800)
+        mag = action.args.get("magnitude", 800)
         direction = action.args["direction"]
         if direction in ("up", "down"):
-            magnitude = self.denormalize_y(magnitude)
+            mag = self.denormalize_y(mag)
         elif direction in ("left", "right"):
-            magnitude = self.denormalize_x(magnitude)
+            mag = self.denormalize_x(mag)
         else:
             raise ValueError("Unknown direction: ", direction)
-        return self._browser_computer.scroll_at(x=x, y=y, direction=direction, magnitude=magnitude)
+        return self._browser_computer.scroll_at(x=x, y=y, direction=direction, magnitude=mag)
 
     def _handle_drag_and_drop(self, action: types.FunctionCall) -> FunctionResponseT:
         return self._browser_computer.drag_and_drop(
@@ -199,13 +158,11 @@ class BrowserAgent:
         )
 
     def _dispatch_action(self, action: types.FunctionCall) -> FunctionResponseT:
-        """Dispatch a non-legacy action by name."""
-        bc = self._browser_computer
-        name = action.name
+        bc, name = self._browser_computer, action.name
         if name in _XY_CLICK_ACTIONS:
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
-            return getattr(bc, _XY_CLICK_ACTIONS[name])(x=x, y=y)
+            return getattr(bc, _XY_CLICK_ACTIONS[name])(
+                x=self.denormalize_x(action.args["x"]), y=self.denormalize_y(action.args["y"])
+            )
         if name in _SIMPLE_NO_ARG_ACTIONS:
             return getattr(bc, _SIMPLE_NO_ARG_ACTIONS[name])()
         if name in _KEY_ARG_ACTIONS:
@@ -215,7 +172,9 @@ class BrowserAgent:
         if name == "drag_and_drop":
             return self._handle_drag_and_drop(action)
         if name == "type":
-            return bc.type_text(text=action.args["text"], press_enter=action.args.get("press_enter", False))
+            return bc.type_text(
+                text=action.args["text"], press_enter=action.args.get("press_enter", False)
+            )
         if name == "wait":
             return bc.wait(int(action.args.get("seconds", 1)))
         if name == "navigate":
@@ -227,15 +186,17 @@ class BrowserAgent:
         raise ValueError(f"Unsupported function: {action}")
 
     def _dispatch_legacy_action(self, action: types.FunctionCall) -> FunctionResponseT:
-        """Dispatch a legacy action by name."""
-        bc = self._browser_computer
-        name = action.name
+        bc, name = self._browser_computer, action.name
         if name in _SIMPLE_NO_ARG_ACTIONS:
             return getattr(bc, _SIMPLE_NO_ARG_ACTIONS[name])()
         if name == "click_at":
-            return bc.click_at(x=self.denormalize_x(action.args["x"]), y=self.denormalize_y(action.args["y"]))
+            return bc.click_at(
+                x=self.denormalize_x(action.args["x"]), y=self.denormalize_y(action.args["y"])
+            )
         if name == "hover_at":
-            return bc.hover_at(x=self.denormalize_x(action.args["x"]), y=self.denormalize_y(action.args["y"]))
+            return bc.hover_at(
+                x=self.denormalize_x(action.args["x"]), y=self.denormalize_y(action.args["y"])
+            )
         if name == "type_text_at":
             return bc.type_text_at(
                 x=self.denormalize_x(action.args["x"]),
@@ -261,13 +222,9 @@ class BrowserAgent:
     def handle_action(
         self, action: types.FunctionCall, use_legacy_actions: bool
     ) -> FunctionResponseT:
-        """Handles the action and returns the environment state."""
-        if use_legacy_actions:
-            return self.handle_legacy_action(action)
-        return self._dispatch_action(action)
+        return self.handle_legacy_action(action) if use_legacy_actions else self._dispatch_action(action)
 
     def handle_legacy_action(self, action: types.FunctionCall) -> FunctionResponseT:
-        """Handles the action defined in the legacy models, and returns the environment state."""
         return self._dispatch_legacy_action(action)
 
     def get_model_response(
@@ -275,51 +232,36 @@ class BrowserAgent:
     ) -> types.GenerateContentResponse:
         for attempt in range(max_retries):
             try:
-                response = self._client.models.generate_content(
+                return self._client.models.generate_content(
                     model=self._model_name,
                     contents=self._contents,
                     config=self._generate_content_config,
                 )
-                return response  # Return response on success
             except Exception as e:
                 print(e)
                 if attempt < max_retries - 1:
                     delay = base_delay_s * (2**attempt)
-                    message = (
-                        f"Generating content failed on attempt {attempt + 1}. "
-                        f"Retrying in {delay} seconds...\n"
-                    )
                     termcolor.cprint(
-                        message,
+                        f"Generating content failed on attempt {attempt + 1}. Retrying in {delay}s...\n",
                         color="yellow",
                     )
                     time.sleep(delay)
                 else:
                     termcolor.cprint(
-                        f"Generating content failed after {max_retries} attempts.\n",
-                        color="red",
+                        f"Generating content failed after {max_retries} attempts.\n", color="red"
                     )
                     raise
 
     def get_text(self, candidate: Candidate) -> Optional[str]:
-        """Extracts the text from the candidate."""
         if not candidate.content or not candidate.content.parts:
             return None
-        text = []
-        for part in candidate.content.parts:
-            if part.text:
-                text.append(part.text)
+        text = [part.text for part in candidate.content.parts if part.text]
         return " ".join(text) or None
 
     def extract_function_calls(self, candidate: Candidate) -> list[types.FunctionCall]:
-        """Extracts the function call from the candidate."""
         if not candidate.content or not candidate.content.parts:
             return []
-        ret = []
-        for part in candidate.content.parts:
-            if part.function_call:
-                ret.append(part.function_call)
-        return ret
+        return [part.function_call for part in candidate.content.parts if part.function_call]
 
     def _build_function_response(
         self,
@@ -327,7 +269,6 @@ class BrowserAgent:
         fc_result: FunctionResponseT,
         extra_fr_fields: dict,
     ) -> Optional[FunctionResponse]:
-        """Build a FunctionResponse from an action result, or None if unrecognised."""
         if isinstance(fc_result, EnvState):
             return FunctionResponse(
                 name=function_call.name,
@@ -345,7 +286,6 @@ class BrowserAgent:
         return None
 
     def _trim_old_screenshots(self) -> None:
-        """Remove screenshot data from turns older than MAX_RECENT_TURN_WITH_SCREENSHOTS."""
         turn_with_screenshots_found = 0
         for content in reversed(self._contents):
             if not (content.role == "user" and content.parts):
@@ -371,46 +311,29 @@ class BrowserAgent:
                         part.function_response.parts = None
 
     def _generate_response(self):
-        """Get the model response; swallow errors as a COMPLETE signal (returns None)."""
-        if self._verbose:
-            with console.status(
-                "Generating response from Gemini Computer Use...", spinner_style=None
-            ):
-                try:
-                    return self.get_model_response()
-                except Exception:
-                    return None
+        ctx = console.status("Generating response from Gemini Computer Use...", spinner_style=None) if self._verbose else nullcontext()
         try:
-            return self.get_model_response()
+            with ctx:
+                return self.get_model_response()
         except Exception:
             return None
 
     def _render_turn(self, reasoning, function_calls) -> None:
-        """Render the reasoning + function-call(s) table (printed only when verbose)."""
-        function_call_strs = []
-        for function_call in function_calls:
-            # Print the function call and any reasoning.
-            function_call_str = f"Name: {function_call.name}"
-            if function_call.args:
-                function_call_str += f"\nArgs:"
-                for key, value in function_call.args.items():
-                    function_call_str += f"\n  {key}: {value}"
-            function_call_strs.append(function_call_str)
-
+        fc_strs = []
+        for fc in function_calls:
+            s = f"Name: {fc.name}"
+            if fc.args:
+                s += "\nArgs:\n" + "\n".join(f"  {k}: {v}" for k, v in fc.args.items())
+            fc_strs.append(s)
         table = Table(expand=True)
-        table.add_column(
-            "Gemini Computer Use Reasoning", header_style="magenta", ratio=1
-        )
+        table.add_column("Gemini Computer Use Reasoning", header_style="magenta", ratio=1)
         table.add_column("Function Call(s)", header_style="cyan", ratio=1)
-        table.add_row(reasoning, "\n".join(function_call_strs))
+        table.add_row(reasoning, "\n".join(fc_strs))
         if self._verbose:
             console.print(table)
             print()
 
     def _execute_function_calls(self, function_calls) -> tuple[list, bool]:
-        """Execute each function call, returning (function_responses, terminated).
-        ``terminated`` is True when a safety decision was TERMINATE (the caller then
-        completes the loop without recording the partial responses)."""
         function_responses = []
         for function_call in function_calls:
             extra_fr_fields = {}
@@ -420,10 +343,8 @@ class BrowserAgent:
                     print("Terminating agent loop")
                     return function_responses, True
                 extra_fr_fields["safety_acknowledgement"] = "true"
-            if self._verbose:
-                with console.status("Sending command to Computer...", spinner_style=None):
-                    fc_result = self.handle_action(function_call, self._use_legacy_computer_use_function_call)
-            else:
+            ctx = console.status("Sending command to Computer...", spinner_style=None) if self._verbose else nullcontext()
+            with ctx:
                 fc_result = self.handle_action(function_call, self._use_legacy_computer_use_function_call)
             fr = self._build_function_response(function_call, fc_result, extra_fr_fields)
             if fr is not None:
@@ -431,7 +352,6 @@ class BrowserAgent:
         return function_responses, False
 
     def run_one_iteration(self) -> Literal["COMPLETE", "CONTINUE"]:
-        # Generate a response from the model.
         response = self._generate_response()
         if response is None:
             return "COMPLETE"
@@ -448,16 +368,13 @@ class BrowserAgent:
             print(response)
             raise ValueError("Empty response")
 
-        # Extract the text and function call from the response.
         candidate = response.candidates[0]
-        # Append the model turn to conversation history.
         if candidate.content:
             self._contents.append(candidate.content)
 
         reasoning = self.get_text(candidate)
         function_calls = self.extract_function_calls(candidate)
 
-        # Retry the request in case of malformed FCs.
         if (
             not function_calls
             and not reasoning
@@ -486,12 +403,8 @@ class BrowserAgent:
         self, safety: dict[str, Any]
     ) -> Literal["CONTINUE", "TERMINATE"]:
         if safety["decision"] != "require_confirmation":
-            raise ValueError(f"Unknown safety decision: safety['decision']")
-        termcolor.cprint(
-            "Safety service requires explicit confirmation!",
-            color="yellow",
-            attrs=["bold"],
-        )
+            raise ValueError("Unknown safety decision: safety['decision']")
+        termcolor.cprint("Safety service requires explicit confirmation!", color="yellow", attrs=["bold"])
         print(safety["explanation"])
         decision = ""
         while decision.lower() not in ("y", "n", "ye", "yes", "no"):
@@ -500,7 +413,41 @@ class BrowserAgent:
             return "TERMINATE"
         return "CONTINUE"
 
+    def run_local(self) -> str:
+        """Run deterministically using the universal local runner without cloud models."""
+        from urirun_connector_kvm.runner import UniversalRunner
+        runner = UniversalRunner()
+        steps = runner.parse_query_to_steps(self._query)
+        for st in steps:
+            op = st.get("op", "")
+            if op in ("dom-click", "click") and "selector" in st:
+                if hasattr(self._browser_computer, "click_selector"):
+                    self._browser_computer.click_selector(st["selector"])
+                else:
+                    runner.execute_step(st)
+            elif op in ("dom-fill", "fill") and "selector" in st:
+                if hasattr(self._browser_computer, "fill_selector"):
+                    self._browser_computer.fill_selector(st["selector"], st.get("value", ""))
+                else:
+                    runner.execute_step(st)
+            elif op in ("navigate", "open"):
+                self._browser_computer.navigate(st.get("url", ""))
+            elif op == "click" and "x" in st and "y" in st:
+                self._browser_computer.click_at(st["x"], st["y"])
+            elif op == "type" and "text" in st:
+                self._browser_computer.type_text(st["text"], False)
+            elif op == "key" and "keys" in st:
+                self._browser_computer.press_key(st["keys"])
+            elif op in ("wait", "sleep") and "seconds" in st:
+                self._browser_computer.wait(int(st["seconds"]))
+            else:
+                runner.execute_step(st)
+        self.final_reasoning = f"Local execution completed {len(steps)} step(s)."
+        return "COMPLETE"
+
     def agent_loop(self):
+        if self._model_name == "local" or self._client is None:
+            return self.run_local()
         status = "CONTINUE"
         while status == "CONTINUE":
             status = self.run_one_iteration()

@@ -12,8 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from .computer import Computer, EnvState
-from .browserbase.browserbase import BrowserbaseComputer
-from .playwright.playwright import PlaywrightComputer
+
+try:
+    from .browserbase.browserbase import BrowserbaseComputer
+except ImportError:
+    BrowserbaseComputer = None  # type: ignore
+
+try:
+    from .playwright.playwright import PlaywrightComputer
+except ImportError:
+    PlaywrightComputer = None  # type: ignore
+
 from .kvm.kvm import KvmComputer
 
 __all__ = [

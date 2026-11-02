@@ -12,32 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import argparse
+import json
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv()  # Load environment variables from .env file
+load_dotenv()
 
 from agent import BrowserAgent
 from computers import BrowserbaseComputer, PlaywrightComputer, KvmComputer
 
-
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the browser agent with a query.")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the browser agent with a query or plan.")
     parser.add_argument(
         "--query",
         type=str,
-        required=True,
+        default="",
         help="The query for the browser agent to execute.",
     )
-
+    parser.add_argument(
+        "--plan",
+        type=str,
+        default=None,
+        help="Path to JSON plan file containing sequential steps.",
+    )
+    default_env = "playwright" if os.environ.get("GEMINI_API_KEY") else "local"
     parser.add_argument(
         "--env",
         type=str,
-        choices=("playwright", "browserbase", "kvm"),
-        default="playwright",
+        choices=("playwright", "browserbase", "kvm", "local"),
+        default=default_env,
         help="The computer use environment to use.",
     )
     parser.add_argument(
@@ -64,33 +71,54 @@ def main() -> int:
         default=False,
         help="If possible, highlight the location of the mouse.",
     )
+    default_model = "gemini-3.5-flash" if os.environ.get("GEMINI_API_KEY") else "local"
     parser.add_argument(
         "--model",
-        default='gemini-3.5-flash',
-        help="Set which main model to use.",
+        default=default_model,
+        help="Set which main model to use (use 'local' for cloud-free execution).",
     )
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
+    query = getattr(args, "query", "") or ""
+    plan_arg = getattr(args, "plan", None)
+    if isinstance(plan_arg, str) and plan_arg:
+        plan_data = json.loads(Path(plan_arg).read_text(encoding="utf-8"))
+        if not query and isinstance(plan_data, dict):
+            query = plan_data.get("query", "")
+        if not query and isinstance(plan_data, list):
+            query = f"execute {len(plan_data)} plan step(s)"
+
     if args.env == "playwright":
+        if PlaywrightComputer is None:
+            raise RuntimeError("playwright is not installed in this environment")
         env = PlaywrightComputer(
             screen_size=PLAYWRIGHT_SCREEN_SIZE,
             initial_url=args.initial_url,
             highlight_mouse=args.highlight_mouse,
         )
     elif args.env == "browserbase":
+        if BrowserbaseComputer is None:
+            raise RuntimeError("browserbase is not installed in this environment")
         env = BrowserbaseComputer(
             screen_size=PLAYWRIGHT_SCREEN_SIZE,
-            initial_url=args.initial_url
+            initial_url=args.initial_url,
         )
     elif args.env == "kvm":
         env = KvmComputer(node_url=args.node, node_name=args.node_name)
+    elif args.env == "local":
+        env = KvmComputer(node_url="local", node_name=args.node_name)
     else:
-        raise ValueError("Unknown environment: ", args.env)
+        raise ValueError(f"Unknown environment: {args.env}")
 
     with env as browser_computer:
         agent = BrowserAgent(
             browser_computer=browser_computer,
-            query=args.query,
+            query=query,
             model_name=args.model,
         )
         agent.agent_loop()

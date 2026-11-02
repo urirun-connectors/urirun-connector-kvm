@@ -43,6 +43,7 @@ urirun_connector_kvm = ["connector.manifest.json"]
 max-complexity = 15
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 norecursedirs = ["computer-use-preview", "venv", ".venv", "build", "dist"]
 
 [tool.costs]
